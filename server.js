@@ -23,23 +23,42 @@ const db = new sqlite3.Database('./guests.db', (err) => {
       last_name TEXT NOT NULL,
       gender TEXT,
       date_of_birth TEXT,
+      phone TEXT,
       visit_date TEXT NOT NULL,
       created_at TEXT NOT NULL
     )`);
+
+    // Migration: add phone column if it doesn't exist yet
+    db.all(`PRAGMA table_info(guests)`, (err, rows) => {
+      if (err) {
+        console.error('Error reading table info for migration:', err.message);
+        return;
+      }
+      const hasPhoneColumn = rows.some((col) => col.name === 'phone');
+      if (!hasPhoneColumn) {
+        db.run(`ALTER TABLE guests ADD COLUMN phone TEXT`, (alterErr) => {
+          if (alterErr) {
+            console.error('Error adding phone column:', alterErr.message);
+          } else {
+            console.log('Migration applied: added phone column to guests table.');
+          }
+        });
+      }
+    });
   }
 });
 
 // 1. API สำหรับลงทะเบียนแขก (POST /register)
 app.post('/register', (req, res) => {
-  const { line_user_id, firstName, lastName, gender, date_of_birth, visit_date } = req.body;
+  const { line_user_id, firstName, lastName, gender, date_of_birth, phone, visit_date } = req.body;
 
   if (!line_user_id || !firstName || !lastName || !visit_date) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
-  const stmt = db.prepare(`INSERT INTO guests (line_user_id, first_name, last_name, gender, date_of_birth, visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`);
+  const stmt = db.prepare(`INSERT INTO guests (line_user_id, first_name, last_name, gender, date_of_birth, phone, visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
   
-  stmt.run(line_user_id, firstName, lastName, gender, date_of_birth, visit_date, function (err) {
+  stmt.run(line_user_id, firstName, lastName, gender, date_of_birth, phone, visit_date, function (err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
