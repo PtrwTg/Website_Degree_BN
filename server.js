@@ -1,116 +1,124 @@
+// server.js (ฉบับ PostgreSQL สำหรับ Guest Registration)
+require('dotenv').config(); // ใช้สำหรับการทดสอบในเครื่องคุณ
 const express = require('express');
-const sqlite3 = require('sqlite3').verbose();
+const { Pool } = require('pg'); 
 const cors = require('cors');
 
 const app = express();
-//const port = 5000;
 const port = process.env.PORT || 3000;
+
+// PostgreSQL Connection Pool (ใช้ DB ตัวเดิม)
+const pool = new Pool({
+    connectionString: process.env.DATABASE_URL,
+});
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 
-// สร้างและเชื่อมต่อฐานข้อมูล
-const db = new sqlite3.Database('./guests.db', (err) => {
-  if (err) {
-    console.error('Error connecting to database:', err.message);
-  } else {
-    console.log('Connected to the guests database.');
-    db.run(`CREATE TABLE IF NOT EXISTS guests (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      line_user_id TEXT NOT NULL,
-      first_name TEXT NOT NULL,
-      last_name TEXT NOT NULL,
-      date_of_birth TEXT,
-      phone TEXT,
-      visit_date TEXT NOT NULL,
-      created_at TEXT NOT NULL
-    )`);
-
-    // Migration: add phone column if it doesn't exist yet
-    db.all(`PRAGMA table_info(guests)`, (err, rows) => {
-      if (err) {
-        console.error('Error reading table info for migration:', err.message);
-        return;
-      }
-      const hasPhoneColumn = rows.some((col) => col.name === 'phone');
-      if (!hasPhoneColumn) {
-        db.run(`ALTER TABLE guests ADD COLUMN phone TEXT`, (alterErr) => {
-          if (alterErr) {
-            console.error('Error adding phone column:', alterErr.message);
-          } else {
-            console.log('Migration applied: added phone column to guests table.');
-          }
-        });
-      }
-    });
-  }
-});
+// ฟังก์ชันเริ่มต้นฐานข้อมูล (สร้างตาราง guests)
+async function initDb() {
+    try {
+        const client = await pool.connect();
+        // โค้ดนี้จะสร้างตาราง guests ถ้ายังไม่มีใน DB ตัวเดิมของคุณ
+        await client.query(`
+            CREATE TABLE IF NOT EXISTS guests (
+                id SERIAL PRIMARY KEY,
+                line_user_id TEXT NOT NULL,
+                first_name TEXT NOT NULL,
+                last_name TEXT NOT NULL,
+                date_of_birth TEXT,
+                phone TEXT,
+                visit_date TEXT NOT NULL,
+                created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+            );
+        `);
+        console.log("PostgreSQL: Guest table initialized successfully.");
+        client.release();
+    } catch (err) {
+        console.error("PostgreSQL: Error initializing database:", err);
+    }
+}
 
 // 1. API สำหรับลงทะเบียนแขก (POST /register)
-app.post('/register', (req, res) => {
-  const { line_user_id, firstName, lastName, date_of_birth, phone, visit_date } = req.body;
+app.post('/register', async (req, res) => {
+    const { line_user_id, firstName, lastName, date_of_birth, phone, visit_date } = req.body;
 
-  if (!line_user_id || !firstName || !lastName || !visit_date) {
-    return res.status(400).json({ error: 'Missing required fields.' });
-  }
-
-  const stmt = db.prepare(`INSERT INTO guests (line_user_id, first_name, last_name, date_of_birth, phone, visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`);
-  
-  stmt.run(line_user_id, firstName, lastName, date_of_birth, phone, visit_date, function (err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (!line_user_id || !firstName || !lastName || !visit_date) {
+        return res.status(400).json({ error: 'Missing required fields.' });
     }
-    res.status(201).json({ message: 'Guest registered successfully', guestId: this.lastID });
-  });
+    
+    const query = `
+        INSERT INTO guests (line_user_id, first_name, last_name, date_of_birth, phone, visit_date, created_at) 
+        VALUES ($1, $2, $3, $4, $5, $6, NOW()) 
+        RETURNING id
+    `;
+    const values = [line_user_id, firstName, lastName, date_of_birth, phone, visit_date];
 
-  stmt.finalize();
+    try {
+        const result = await pool.query(query, values);
+        res.status(201).json({ 
+            message: 'Guest registered successfully', 
+            guestId: result.rows[0].id 
+        });
+    } catch (err) {
+        console.error('Registration Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 2. API สำหรับดึงรายชื่อแขกที่ลงทะเบียนโดยผู้ใช้ปัจจุบัน (GET /guests)
-app.get('/guests', (req, res) => {
-  const { userId } = req.query;
+app.get('/guests', async (req, res) => {
+    const { userId } = req.query;
 
-  if (!userId) {
-    return res.status(400).json({ error: 'Missing userId parameter.' });
-  }
-
-  db.all('SELECT * FROM guests WHERE line_user_id = ? ORDER BY created_at DESC', [userId], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    if (!userId) {
+        return res.status(400).json({ error: 'Missing userId parameter.' });
     }
-    res.json(rows);
-  });
+
+    try {
+        const query = 'SELECT * FROM guests WHERE line_user_id = $1 ORDER BY created_at DESC';
+        const result = await pool.query(query, [userId]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Fetch Guests Error:', err.message);
+        res.status(500).json({ error: err.message });
+    }
 });
 
 // 3. API สำหรับลบรายชื่อแขก (DELETE /guest/:guestId)
-app.delete('/guest/:guestId', (req, res) => {
-  const { guestId } = req.params;
+app.delete('/guest/:guestId', async (req, res) => {
+    const { guestId } = req.params;
 
-  db.run('DELETE FROM guests WHERE id = ?', guestId, function (err) {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    try {
+        const query = 'DELETE FROM guests WHERE id = $1';
+        const result = await pool.query(query, [guestId]);
+
+        if (result.rowCount === 0) {
+            return res.status(404).json({ error: 'Guest not found.' });
+        }
+        res.json({ message: 'Guest deleted successfully' });
+    } catch (err) {
+        console.error('Delete Guest Error:', err.message);
+        res.status(500).json({ error: err.message });
     }
-    if (this.changes === 0) {
-      return res.status(404).json({ error: 'Guest not found.' });
-    }
-    res.json({ message: 'Guest deleted successfully' });
-  });
 });
 
 // 4. API สำหรับดึงรายชื่อแขกทั้งหมดในแต่ละวัน (GET /guests/day/:date)
-app.get('/guests/day/:date', (req, res) => {
-  const { date } = req.params;
+app.get('/guests/day/:date', async (req, res) => {
+    const { date } = req.params;
 
-  db.all('SELECT first_name, last_name, phone FROM guests WHERE visit_date = ? ORDER BY created_at ASC', [date], (err, rows) => {
-    if (err) {
-      return res.status(500).json({ error: err.message });
+    try {
+        const query = 'SELECT first_name, last_name, phone FROM guests WHERE visit_date = $1 ORDER BY created_at ASC';
+        const result = await pool.query(query, [date]);
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Fetch All Guests Error:', err.message);
+        res.status(500).json({ error: err.message });
     }
-    res.json(rows);
-  });
 });
 
 // เริ่มเซิร์ฟเวอร์
-app.listen(port, () => {
-  console.log(`Backend API is running on http://localhost:${port}`);
+app.listen(port, async () => {
+    console.log(`Backend API is running on http://localhost:${port}`);
+    await initDb(); // เรียก initDb เมื่อเซิร์ฟเวอร์เริ่มทำงาน
 });
