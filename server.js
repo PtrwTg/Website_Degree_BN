@@ -21,7 +21,6 @@ const db = new sqlite3.Database('./guests.db', (err) => {
       line_user_id TEXT NOT NULL,
       first_name TEXT NOT NULL,
       last_name TEXT NOT NULL,
-      gender TEXT,
       date_of_birth TEXT,
       phone TEXT,
       visit_date TEXT NOT NULL,
@@ -50,15 +49,15 @@ const db = new sqlite3.Database('./guests.db', (err) => {
 
 // 1. API สำหรับลงทะเบียนแขก (POST /register)
 app.post('/register', (req, res) => {
-  const { line_user_id, firstName, lastName, gender, date_of_birth, phone, visit_date } = req.body;
+  const { line_user_id, firstName, lastName, date_of_birth, phone, visit_date } = req.body;
 
   if (!line_user_id || !firstName || !lastName || !visit_date) {
     return res.status(400).json({ error: 'Missing required fields.' });
   }
 
-  const stmt = db.prepare(`INSERT INTO guests (line_user_id, first_name, last_name, gender, date_of_birth, phone, visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime('now'))`);
+  const stmt = db.prepare(`INSERT INTO guests (line_user_id, first_name, last_name, date_of_birth, phone, visit_date, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'))`);
   
-  stmt.run(line_user_id, firstName, lastName, gender, date_of_birth, phone, visit_date, function (err) {
+  stmt.run(line_user_id, firstName, lastName, date_of_birth, phone, visit_date, function (err) {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
@@ -103,7 +102,7 @@ app.delete('/guest/:guestId', (req, res) => {
 app.get('/guests/day/:date', (req, res) => {
   const { date } = req.params;
 
-  db.all('SELECT first_name, last_name, gender FROM guests WHERE visit_date = ? ORDER BY created_at ASC', [date], (err, rows) => {
+  db.all('SELECT first_name, last_name, phone FROM guests WHERE visit_date = ? ORDER BY created_at ASC', [date], (err, rows) => {
     if (err) {
       return res.status(500).json({ error: err.message });
     }
