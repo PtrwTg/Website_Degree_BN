@@ -1,4 +1,4 @@
-// server.js (ฉบับ MIGRATION SCRIPT: รัน ALTER TABLE อัตโนมัติในการ Deploy ครั้งแรก)
+// server.js (ฉบับ MIGRATION SCRIPT: แก้ไข host_name แล้ว)
 require('dotenv').config(); 
 const express = require('express');
 const { Pool } = require('pg'); 
@@ -23,7 +23,7 @@ async function initDb() {
     try {
         const client = await pool.connect();
         
-        // 1. สร้างตาราง guests หากยังไม่มี (ใช้โครงสร้างเดิมเพื่อไม่ให้เกิด Error หากตารางไม่เคยมี)
+        // 1. สร้างตาราง guests หากยังไม่มี (เพื่อรับประกันว่าตารางมีอยู่ก่อน ALTER TABLE)
         await client.query(`
             CREATE TABLE IF NOT EXISTS guests (
                 id SERIAL PRIMARY KEY,
@@ -38,9 +38,19 @@ async function initDb() {
             );
         `);
 
-        // 2. **Schema Migration: รัน ALTER TABLE เพื่อแก้ไขโครงสร้างตารางที่มีอยู่**
+        // 2. **Schema Migration: รัน ALTER TABLE เพื่อแก้ไขโครงสร้างตารางที่มีอยู่ (สำคัญ: แก้ปัญหา host_name ที่นี่)**
         
-        // A. เพิ่มคอลัมน์ arrival_time (ถ้ายังไม่มี)
+        // A. FIX: เพิ่มคอลัมน์ host_name (แก้ปัญหาปัจจุบัน)
+        try {
+            await client.query(`ALTER TABLE guests ADD COLUMN host_name TEXT;`);
+            console.log("PostgreSQL: Added column 'host_name'.");
+        } catch (e) {
+            if (!e.message.includes('column "host_name" already exists')) {
+                console.error("Error adding host_name:", e.message);
+            }
+        }
+
+        // B. NEW: เพิ่มคอลัมน์ arrival_time
         try {
             await client.query(`ALTER TABLE guests ADD COLUMN arrival_time TEXT;`);
             console.log("PostgreSQL: Added column 'arrival_time'.");
@@ -50,7 +60,7 @@ async function initDb() {
             }
         }
         
-        // B. ลบคอลัมน์ date_of_birth (ถ้ายังมีอยู่)
+        // C. REMOVE: ลบคอลัมน์ date_of_birth
         try {
             await client.query(`ALTER TABLE guests DROP COLUMN date_of_birth;`);
             console.log("PostgreSQL: Dropped column 'date_of_birth'.");
@@ -67,11 +77,10 @@ async function initDb() {
     }
 }
 
-// เรียกใช้ฟังก์ชันเริ่มต้น DB เมื่อเริ่มต้น Server
 initDb();
 
 // ===============================================
-// API Endpoints (ใช้โค้ดใหม่ที่รองรับ arrival_time)
+// API Endpoints (ใช้โค้ดใหม่ที่รองรับ arrival_time และ host_name)
 // ===============================================
 
 // 1. API สำหรับลงทะเบียนแขก (POST /api/guests)
