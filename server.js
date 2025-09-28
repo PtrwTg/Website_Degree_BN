@@ -1,4 +1,4 @@
-// server.js (ฉบับ MIGRATION SCRIPT: แก้ไข host_name แล้ว)
+// server.js (ฉบับ PRODUCTION-SAFE: พร้อมใช้งานในระยะยาว)
 require('dotenv').config(); 
 const express = require('express');
 const { Pool } = require('pg'); 
@@ -17,13 +17,13 @@ app.use(cors());
 app.use(express.json());
 
 // ===============================================
-// ฟังก์ชันเริ่มต้นฐานข้อมูล: จัดการตารางและแก้ไขโครงสร้าง (Migration)
+// ฟังก์ชันเริ่มต้นฐานข้อมูล: (Production-Safe)
 // ===============================================
 async function initDb() {
     try {
         const client = await pool.connect();
         
-        // 1. สร้างตาราง guests หากยังไม่มี (เพื่อรับประกันว่าตารางมีอยู่ก่อน ALTER TABLE)
+        // ใช้ CREATE TABLE IF NOT EXISTS ด้วยโครงสร้างตารางใหม่ที่สมบูรณ์
         await client.query(`
             CREATE TABLE IF NOT EXISTS guests (
                 id SERIAL PRIMARY KEY,
@@ -31,56 +31,25 @@ async function initDb() {
                 host_name TEXT, 
                 first_name TEXT NOT NULL,
                 last_name TEXT NOT NULL,
-                date_of_birth TEXT,  
                 phone TEXT,
                 visit_date TEXT NOT NULL,
+                arrival_time TEXT,  
                 created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
             );
         `);
-
-        // 2. **Schema Migration: รัน ALTER TABLE เพื่อแก้ไขโครงสร้างตารางที่มีอยู่ (สำคัญ: แก้ปัญหา host_name ที่นี่)**
         
-        // A. FIX: เพิ่มคอลัมน์ host_name (แก้ปัญหาปัจจุบัน)
-        try {
-            await client.query(`ALTER TABLE guests ADD COLUMN host_name TEXT;`);
-            console.log("PostgreSQL: Added column 'host_name'.");
-        } catch (e) {
-            if (!e.message.includes('column "host_name" already exists')) {
-                console.error("Error adding host_name:", e.message);
-            }
-        }
-
-        // B. NEW: เพิ่มคอลัมน์ arrival_time
-        try {
-            await client.query(`ALTER TABLE guests ADD COLUMN arrival_time TEXT;`);
-            console.log("PostgreSQL: Added column 'arrival_time'.");
-        } catch (e) {
-            if (!e.message.includes('column "arrival_time" already exists')) {
-                console.error("Error adding arrival_time:", e.message);
-            }
-        }
-        
-        // C. REMOVE: ลบคอลัมน์ date_of_birth
-        try {
-            await client.query(`ALTER TABLE guests DROP COLUMN date_of_birth;`);
-            console.log("PostgreSQL: Dropped column 'date_of_birth'.");
-        } catch (e) {
-            if (!e.message.includes('column "date_of_birth" does not exist')) {
-                console.error("Error dropping date_of_birth:", e.message);
-            }
-        }
-        
-        console.log("PostgreSQL: Database schema migration completed. Ready for production code deployment.");
+        console.log("PostgreSQL: Guest table is structurally up-to-date and ready (Production Safe).");
         client.release();
     } catch (err) {
         console.error("PostgreSQL: Critical Error during initialization:", err);
     }
 }
 
+// เรียกใช้ฟังก์ชันเริ่มต้น DB เมื่อเริ่มต้น Server
 initDb();
 
 // ===============================================
-// API Endpoints (ใช้โค้ดใหม่ที่รองรับ arrival_time และ host_name)
+// API Endpoints (โค้ดส่วนนี้ยังเหมือนเดิม แต่ไม่มีโค้ด Migration แล้ว)
 // ===============================================
 
 // 1. API สำหรับลงทะเบียนแขก (POST /api/guests)
